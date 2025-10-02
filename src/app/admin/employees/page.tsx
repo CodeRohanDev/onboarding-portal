@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import Layout from '@/components/Layout';
+import ProtectedRoute from '@/components/ProtectedRoute';
 import Table from '@/components/Table';
 import Modal from '@/components/Modal';
 import { userAPI, authAPI, taskAPI } from '@/lib/api';
@@ -16,6 +17,27 @@ interface Employee {
     role: 'admin' | 'user';
     startDate: string;
     department?: string;
+    [key: string]: unknown; // Add index signature
+}
+
+interface Task {
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    dueDate: string;
+    category: string;
+    priority: string;
+}
+
+interface BulkUploadEmployee {
+    name: string;
+    email: string;
+    password: string;
+    phone: string;
+    startDate: string;
+    status?: string;
+    error?: string;
 }
 
 const AdminEmployeesPage: React.FC = () => {
@@ -25,9 +47,9 @@ const AdminEmployeesPage: React.FC = () => {
     const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
     const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-    const [employeeTasks, setEmployeeTasks] = useState<any[]>([]);
+    const [employeeTasks, setEmployeeTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(false);
-    const [bulkUploadData, setBulkUploadData] = useState<any[]>([]);
+    const [bulkUploadData, setBulkUploadData] = useState<BulkUploadEmployee[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -53,7 +75,7 @@ const AdminEmployeesPage: React.FC = () => {
             const response = await userAPI.getAllUsers({ role: 'user' });
             if (response.success && response.data) {
                 // Map API response to match our interface
-                const employees = response.data.map((u: any) => ({
+                const employees = response.data.map((u: Record<string, unknown>) => ({
                     id: u._id || u.id,
                     name: u.name,
                     email: u.email,
@@ -111,7 +133,7 @@ const AdminEmployeesPage: React.FC = () => {
             'John Doe,john.doe@company.com,StrongPass123!,1234567890,2025-01-15',
             'Jane Smith,jane.smith@company.com,SecurePass456!,0987654321,2025-01-20'
         ].join('\n');
-        
+
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -124,19 +146,30 @@ const AdminEmployeesPage: React.FC = () => {
     };
 
     // Parse CSV file
-    const parseCSV = (text: string) => {
+    const parseCSV = (text: string): BulkUploadEmployee[] => {
         const lines = text.split('\n').filter(line => line.trim());
         const headers = lines[0].split(',').map(h => h.trim());
-        const data = [];
-        
+        const data: BulkUploadEmployee[] = [];
+
         for (let i = 1; i < lines.length; i++) {
             const values = lines[i].split(',').map(v => v.trim());
             if (values.length === headers.length) {
-                const row: any = {};
+                const row: Record<string, string> = {};
                 headers.forEach((header, index) => {
                     row[header] = values[index];
                 });
-                data.push(row);
+
+                // Validate and create BulkUploadEmployee object
+                if (row.name && row.email && row.password && row.phone && row.startDate) {
+                    const employee: BulkUploadEmployee = {
+                        name: row.name,
+                        email: row.email,
+                        password: row.password,
+                        phone: row.phone,
+                        startDate: row.startDate,
+                    };
+                    data.push(employee);
+                }
             }
         }
         return data;
@@ -146,10 +179,10 @@ const AdminEmployeesPage: React.FC = () => {
     const handleFileDrop = (e: React.DragEvent) => {
         e.preventDefault();
         setIsDragOver(false);
-        
+
         const files = Array.from(e.dataTransfer.files);
         const csvFile = files.find(file => file.type === 'text/csv' || file.name.endsWith('.csv'));
-        
+
         if (csvFile) {
             const reader = new FileReader();
             reader.onload = (event) => {
@@ -180,13 +213,13 @@ const AdminEmployeesPage: React.FC = () => {
     // Process bulk upload
     const processBulkUpload = async () => {
         if (bulkUploadData.length === 0) return;
-        
+
         setIsProcessing(true);
         setUploadProgress(0);
-        
+
         const results = [];
         const total = bulkUploadData.length;
-        
+
         for (let i = 0; i < bulkUploadData.length; i++) {
             const employee = bulkUploadData[i];
             try {
@@ -198,7 +231,7 @@ const AdminEmployeesPage: React.FC = () => {
                     phone: employee.phone,
                     startDate: employee.startDate,
                 });
-                
+
                 results.push({
                     ...employee,
                     status: response.success ? 'success' : 'failed',
@@ -211,19 +244,19 @@ const AdminEmployeesPage: React.FC = () => {
                     error: 'Network error'
                 });
             }
-            
+
             setUploadProgress(Math.round(((i + 1) / total) * 100));
         }
-        
+
         const successful = results.filter(r => r.status === 'success').length;
         const failed = results.filter(r => r.status === 'failed').length;
-        
+
         alert(`Upload completed!\nSuccessful: ${successful}\nFailed: ${failed}`);
-        
+
         if (successful > 0) {
             loadEmployees();
         }
-        
+
         setIsProcessing(false);
         setIsBulkUploadModalOpen(false);
         setBulkUploadData([]);
@@ -233,12 +266,12 @@ const AdminEmployeesPage: React.FC = () => {
     const handleViewProfile = async (employee: Employee) => {
         setSelectedEmployee(employee);
         setIsProfileModalOpen(true);
-        
+
         // Load employee tasks
         try {
             const response = await taskAPI.getUserTasks(employee.id);
             if (response.success && response.data) {
-                const tasks = response.data.map((t: any) => ({
+                const tasks = response.data.map((t: Record<string, unknown>) => ({
                     id: t._id || t.id,
                     title: t.title,
                     description: t.description,
@@ -249,8 +282,8 @@ const AdminEmployeesPage: React.FC = () => {
                 }));
                 setEmployeeTasks(tasks);
             }
-        } catch (error) {
-            console.error('Error loading employee tasks:', error);
+        } catch (err) {
+            console.error('Error loading employee tasks:', err);
             setEmployeeTasks([]);
         }
     };
@@ -258,7 +291,7 @@ const AdminEmployeesPage: React.FC = () => {
     // Filter employees based on search term
     const filteredEmployees = employees.filter(employee => {
         if (!searchTerm) return true;
-        
+
         const searchLower = searchTerm.toLowerCase();
         return (
             employee.name?.toLowerCase().includes(searchLower) ||
@@ -272,35 +305,42 @@ const AdminEmployeesPage: React.FC = () => {
         {
             key: 'name',
             label: 'Name',
-            render: (value: string, row: Employee) => (
-                <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-dark flex items-center justify-center">
-                        <span className="text-white text-sm font-semibold">
-                            {value?.charAt(0).toUpperCase()}
-                        </span>
+            render: (value: unknown, row: Record<string, unknown>) => {
+                const name = value as string;
+                const employee = row as Employee;
+                return (
+                    <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-dark flex items-center justify-center">
+                            <span className="text-white text-sm font-semibold">
+                                {name?.charAt(0).toUpperCase()}
+                            </span>
+                        </div>
+                        <div>
+                            <span className="text-text-primary font-medium">{name}</span>
+                            <div className="text-text-muted text-xs">{employee.department || 'No department'}</div>
+                        </div>
                     </div>
-                    <div>
-                        <span className="text-text-primary font-medium">{value}</span>
-                        <div className="text-text-muted text-xs">{row.department || 'No department'}</div>
-                    </div>
-                </div>
-            ),
+                );
+            },
         },
         {
             key: 'email',
             label: 'Email',
-            render: (value: string) => (
-                <span className="text-text-secondary">{value}</span>
+            render: (value: unknown) => (
+                <span className="text-text-secondary">{value as string}</span>
             ),
         },
         {
             key: 'startDate',
             label: 'Start Date',
-            render: (value: string) => (
-                <span className="text-text-secondary">
-                    {value ? formatDate(value) : 'Not set'}
-                </span>
-            ),
+            render: (value: unknown) => {
+                const dateValue = value as string;
+                return (
+                    <span className="text-text-secondary">
+                        {dateValue ? formatDate(dateValue) : 'Not set'}
+                    </span>
+                );
+            },
         },
         {
             key: 'status',
@@ -314,30 +354,23 @@ const AdminEmployeesPage: React.FC = () => {
         {
             key: 'actions',
             label: 'Actions',
-            render: (value: any, row: Employee) => (
-                <button
-                    onClick={() => handleViewProfile(row)}
-                    className="px-4 py-2 rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-all duration-200 text-sm font-medium"
-                >
-                    View Profile
-                </button>
-            ),
+            render: (_value: unknown, row: Record<string, unknown>) => {
+                const employee = row as Employee;
+                return (
+                    <button
+                        onClick={() => handleViewProfile(employee)}
+                        className="px-4 py-2 rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-all duration-200 text-sm font-medium"
+                    >
+                        View Profile
+                    </button>
+                );
+            },
         },
     ];
 
-    if (user?.role !== 'admin') {
-        return (
-            <Layout>
-                <div className="text-center py-12">
-                    <h1 className="text-2xl font-bold text-danger">Access Denied</h1>
-                    <p className="text-text-secondary">You don't have permission to access this page.</p>
-                </div>
-            </Layout>
-        );
-    }
-
     return (
-        <Layout>
+        <ProtectedRoute requiredRole="admin">
+            <Layout>
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -430,13 +463,13 @@ const AdminEmployeesPage: React.FC = () => {
                 <div className="space-y-4">
                     <Table
                         columns={columns}
-                        data={filteredEmployees}
+                        data={filteredEmployees as unknown as Record<string, unknown>[]}
                         loading={loading}
-                        onRowClick={(employee: Employee) => {
+                        onRowClick={(employee: Record<string, unknown>) => {
                             console.log('Employee clicked:', employee);
                         }}
                     />
-                    
+
                     {filteredEmployees.length === 0 && !loading && searchTerm && (
                         <div className="text-center py-8">
                             <div className="text-4xl mb-4">🔍</div>
@@ -444,7 +477,7 @@ const AdminEmployeesPage: React.FC = () => {
                                 No employees found
                             </h3>
                             <p className="text-text-secondary mb-4">
-                                No employees match your search for "{searchTerm}"
+                                No employees match your search for &quot;{searchTerm}&quot;
                             </p>
                             <button
                                 onClick={() => setSearchTerm('')}
@@ -665,13 +698,12 @@ const AdminEmployeesPage: React.FC = () => {
                                     {employeeTasks.map((task) => (
                                         <div key={task.id} className="flex items-center justify-between p-4 rounded-lg bg-secondary/20">
                                             <div className="flex items-center space-x-3">
-                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                                    task.status === 'completed' ? 'bg-success/20' :
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${task.status === 'completed' ? 'bg-success/20' :
                                                     task.status === 'in-progress' ? 'bg-warning/20' : 'bg-danger/20'
-                                                }`}>
+                                                    }`}>
                                                     <span className="text-sm">
                                                         {task.status === 'completed' ? '✅' :
-                                                         task.status === 'in-progress' ? '🔄' : '⏳'}
+                                                            task.status === 'in-progress' ? '🔄' : '⏳'}
                                                     </span>
                                                 </div>
                                                 <div>
@@ -680,11 +712,10 @@ const AdminEmployeesPage: React.FC = () => {
                                                 </div>
                                             </div>
                                             <div className="text-right">
-                                                <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${
-                                                    task.status === 'completed' ? 'bg-success/20 text-success' :
+                                                <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${task.status === 'completed' ? 'bg-success/20 text-success' :
                                                     task.status === 'in-progress' ? 'bg-warning/20 text-warning' :
-                                                    'bg-danger/20 text-danger'
-                                                }`}>
+                                                        'bg-danger/20 text-danger'
+                                                    }`}>
                                                     {task.status.replace('-', ' ')}
                                                 </span>
                                             </div>
@@ -741,11 +772,10 @@ const AdminEmployeesPage: React.FC = () => {
 
                     {/* File Upload Area */}
                     <div
-                        className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 ${
-                            isDragOver 
-                                ? 'border-accent bg-accent/10' 
-                                : 'border-accent/30 hover:border-accent/50'
-                        }`}
+                        className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 ${isDragOver
+                            ? 'border-accent bg-accent/10'
+                            : 'border-accent/30 hover:border-accent/50'
+                            }`}
                         onDragOver={(e) => {
                             e.preventDefault();
                             setIsDragOver(true);
@@ -796,7 +826,7 @@ const AdminEmployeesPage: React.FC = () => {
                                     Clear Data
                                 </button>
                             </div>
-                            
+
                             <div className="max-h-60 overflow-y-auto border border-accent/20 rounded-lg">
                                 <table className="w-full text-sm">
                                     <thead className="bg-secondary/30 sticky top-0">
@@ -830,7 +860,7 @@ const AdminEmployeesPage: React.FC = () => {
                                 <span className="text-accent font-medium">{uploadProgress}%</span>
                             </div>
                             <div className="w-full bg-secondary/30 rounded-full h-2">
-                                <div 
+                                <div
                                     className="bg-accent h-2 rounded-full transition-all duration-300"
                                     style={{ width: `${uploadProgress}%` }}
                                 />
@@ -857,14 +887,15 @@ const AdminEmployeesPage: React.FC = () => {
                             className={`btn-modern ${bulkUploadData.length === 0 || isProcessing
                                 ? 'opacity-50 cursor-not-allowed'
                                 : ''
-                            }`}
+                                }`}
                         >
                             {isProcessing ? 'Processing...' : 'Process Upload'}
                         </button>
                     </div>
                 </div>
             </Modal>
-        </Layout>
+            </Layout>
+        </ProtectedRoute>
     );
 };
 

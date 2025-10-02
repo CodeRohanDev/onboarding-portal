@@ -22,6 +22,7 @@ interface Form {
   assignedTo: string;
   fields: FormField[];
   createdAt: string;
+  [key: string]: unknown; // Add index signature
 }
 
 interface FormResponse {
@@ -38,6 +39,7 @@ interface FormResponse {
     answer: string;
   }>;
   submittedAt: string;
+  [key: string]: unknown; // Add index signature
 }
 
 const AdminFeedbackPage: React.FC = () => {
@@ -75,12 +77,12 @@ const AdminFeedbackPage: React.FC = () => {
         const formsData = response.data.forms || response.data;
         console.log('Admin Feedback - Raw forms data:', formsData);
 
-        const forms = formsData.map((f: any) => ({
+        const forms = formsData.map((f: Record<string, unknown>) => ({
           id: f._id || f.id,
           title: f.title,
           description: f.description,
           assignedTo: f.assignedTo,
-          fields: f.fields.map((field: any) => ({
+          fields: (f.fields as Record<string, unknown>[]).map((field: Record<string, unknown>) => ({
             id: field._id || field.id,
             label: field.label,
             type: field.type,
@@ -113,17 +115,20 @@ const AdminFeedbackPage: React.FC = () => {
       const response = await formAPI.getFormResponses(formId);
       if (response.success && response.data) {
         const responsesData = response.data.responses || response.data;
-        const responses = responsesData.map((r: any) => ({
-          id: r._id || r.id,
-          formId: r.formId,
-          user: {
-            id: r.user._id || r.user.id,
-            name: r.user.name,
-            email: r.user.email,
-          },
-          answers: r.answers,
-          submittedAt: r.submittedAt,
-        }));
+        const responses = responsesData.map((r: Record<string, unknown>) => {
+          const userObj = r.user as Record<string, unknown>;
+          return {
+            id: r._id || r.id,
+            formId: r.formId,
+            user: {
+              id: userObj._id || userObj.id,
+              name: userObj.name,
+              email: userObj.email,
+            },
+            answers: r.answers,
+            submittedAt: r.submittedAt,
+          };
+        });
         setResponses(responses);
       }
     } catch (error) {
@@ -192,40 +197,50 @@ const AdminFeedbackPage: React.FC = () => {
     {
       key: 'title',
       label: 'Form',
-      render: (value: string, row: Form) => (
-        <div>
-          <div className="text-text-primary font-medium">{value}</div>
-          <div className="text-text-muted text-sm">{row.description}</div>
-        </div>
-      ),
+      render: (value: unknown, row: Record<string, unknown>) => {
+        const title = value as string;
+        const form = row as Form;
+        return (
+          <div>
+            <div className="text-text-primary font-medium">{title}</div>
+            <div className="text-text-muted text-sm">{form.description}</div>
+          </div>
+        );
+      },
     },
     {
       key: 'assignedTo',
       label: 'Assigned To',
-      render: (value: string) => (
+      render: (value: unknown) => (
         <span className="px-2 py-1 rounded-full text-xs font-medium bg-accent/20 text-accent capitalize">
-          {value}
+          {value as string}
         </span>
       ),
     },
     {
       key: 'fields',
       label: 'Fields',
-      render: (value: FormField[]) => (
-        <span className="text-text-secondary">{value.length} questions</span>
-      ),
+      render: (value: unknown) => {
+        const fields = value as FormField[];
+        return (
+          <span className="text-text-secondary">{fields.length} questions</span>
+        );
+      },
     },
     {
       key: 'actions',
       label: 'Actions',
-      render: (value: any, row: Form) => (
-        <button
-          onClick={() => handleViewResponses(row)}
-          className="px-4 py-2 rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-all duration-200 text-sm font-medium"
-        >
-          View Responses
-        </button>
-      ),
+      render: (_value: unknown, row: Record<string, unknown>) => {
+        const form = row as Form;
+        return (
+          <button
+            onClick={() => handleViewResponses(form)}
+            className="px-4 py-2 rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-all duration-200 text-sm font-medium"
+          >
+            View Responses
+          </button>
+        );
+      },
     },
   ];
 
@@ -233,28 +248,34 @@ const AdminFeedbackPage: React.FC = () => {
     {
       key: 'user',
       label: 'User',
-      render: (value: FormResponse['user']) => (
-        <div>
-          <div className="text-text-primary font-medium">{value.name}</div>
-          <div className="text-text-muted text-sm">{value.email}</div>
-        </div>
-      ),
+      render: (value: unknown) => {
+        const user = value as FormResponse['user'];
+        return (
+          <div>
+            <div className="text-text-primary font-medium">{user.name}</div>
+            <div className="text-text-muted text-sm">{user.email}</div>
+          </div>
+        );
+      },
     },
     {
       key: 'submittedAt',
       label: 'Submitted',
-      render: (value: string) => (
+      render: (value: unknown) => (
         <span className="text-text-secondary">
-          {new Date(value).toLocaleDateString()}
+          {new Date(value as string).toLocaleDateString()}
         </span>
       ),
     },
     {
       key: 'answers',
       label: 'Responses',
-      render: (value: FormResponse['answers']) => (
-        <span className="text-text-secondary">{value.length} answers</span>
-      ),
+      render: (value: unknown) => {
+        const answers = value as FormResponse['answers'];
+        return (
+          <span className="text-text-secondary">{answers.length} answers</span>
+        );
+      },
     },
   ];
 
@@ -263,7 +284,7 @@ const AdminFeedbackPage: React.FC = () => {
       <Layout>
         <div className="text-center py-12">
           <h1 className="text-2xl font-bold text-danger">Access Denied</h1>
-          <p className="text-text-secondary">You don't have permission to access this page.</p>
+          <p className="text-text-secondary">You don&apos;t have permission to access this page.</p>
         </div>
       </Layout>
     );
@@ -351,7 +372,7 @@ const AdminFeedbackPage: React.FC = () => {
 
           <Table
             columns={formColumns}
-            data={filteredForms}
+            data={filteredForms as unknown as Record<string, unknown>[]}
             loading={loading}
           />
 
@@ -537,7 +558,7 @@ const AdminFeedbackPage: React.FC = () => {
                       </div>
                       {(!field.options || field.options.length === 0) && (
                         <p className="text-text-muted text-xs mt-1">
-                          Click "Add Option" to create multiple choice options
+                          Click &quot;Add Option&quot; to create multiple choice options
                         </p>
                       )}
                     </div>
@@ -591,7 +612,7 @@ const AdminFeedbackPage: React.FC = () => {
           {responses.length > 0 ? (
             <Table
               columns={responseColumns}
-              data={responses}
+              data={responses as unknown as Record<string, unknown>[]}
             />
           ) : (
             <div className="text-center py-8">
@@ -600,7 +621,7 @@ const AdminFeedbackPage: React.FC = () => {
                 No responses yet
               </h3>
               <p className="text-text-secondary">
-                This form hasn't received any responses yet.
+                This form hasn&apos;t received any responses yet.
               </p>
             </div>
           )}

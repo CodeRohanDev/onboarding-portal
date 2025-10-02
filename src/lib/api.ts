@@ -10,10 +10,19 @@ const getAuthHeaders = () => {
 };
 
 // Enhanced error message handling
-const getErrorMessage = (error: any, defaultMessage: string = 'An error occurred') => {
+const getErrorMessage = (error: unknown, defaultMessage: string = 'An error occurred') => {
   if (typeof error === 'string') return error;
-  if (error?.message) return error.message;
-  if (error?.error) return error.error;
+  
+  // Type guard to check if error is an object with message property
+  if (error && typeof error === 'object' && 'message' in error) {
+    return (error as { message: string }).message;
+  }
+  
+  // Type guard to check if error is an object with error property
+  if (error && typeof error === 'object' && 'error' in error) {
+    return (error as { error: string }).error;
+  }
+  
   return defaultMessage;
 };
 
@@ -29,31 +38,31 @@ const apiCall = async (endpoint: string, options: RequestInit = {}) => {
 
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    
+
     // Handle non-JSON responses (like HTML error pages)
     const contentType = response.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
-      return { 
-        success: false, 
-        error: `Server error (${response.status}): Invalid response format` 
+      return {
+        success: false,
+        error: `Server error (${response.status}): Invalid response format`
       };
     }
-    
+
     const data = await response.json();
-    
+
     if (response.ok) {
       return { success: true, data };
     } else {
-      return { 
-        success: false, 
-        error: getErrorMessage(data, `Request failed (${response.status})`), 
-        data 
+      return {
+        success: false,
+        error: getErrorMessage(data, `Request failed (${response.status})`),
+        data
       };
     }
   } catch (error) {
-    return { 
-      success: false, 
-      error: getErrorMessage(error, 'Network connection failed') 
+    return {
+      success: false,
+      error: getErrorMessage(error, 'Network connection failed')
     };
   }
 };
@@ -66,9 +75,9 @@ export const authAPI = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    
+
     const data = await response.json();
-    
+
     if (response.ok) {
       return { success: true, data };
     } else {
@@ -111,10 +120,10 @@ export const userAPI = {
     if (params?.status) queryParams.append('status', params.status);
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.page) queryParams.append('page', params.page.toString());
-    
+
     const queryString = queryParams.toString();
     const endpoint = `/api/users${queryString ? `?${queryString}` : ''}`;
-    
+
     return apiCall(endpoint);
   },
 
@@ -148,10 +157,10 @@ export const taskAPI = {
     if (params?.type) queryParams.append('type', params.type);
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.sort) queryParams.append('sort', params.sort);
-    
+
     const queryString = queryParams.toString();
     const endpoint = `/api/tasks/${userId}${queryString ? `?${queryString}` : ''}`;
-    
+
     return apiCall(endpoint);
   },
 
@@ -170,11 +179,11 @@ export const taskAPI = {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.page) queryParams.append('page', params.page.toString());
     if (params?.sort) queryParams.append('sort', params.sort);
-    
+
     const queryString = queryParams.toString();
     // Use the correct endpoint that exists on the server
     const endpoint = `/api/tasks/all${queryString ? `?${queryString}` : ''}`;
-    
+
     return apiCall(endpoint);
   },
 
@@ -212,10 +221,10 @@ export const resourceAPI = {
     if (params?.visibleTo) queryParams.append('visibleTo', params.visibleTo);
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.sort) queryParams.append('sort', params.sort);
-    
+
     const queryString = queryParams.toString();
     const endpoint = `/api/resources${queryString ? `?${queryString}` : ''}`;
-    
+
     return apiCall(endpoint);
   },
 
@@ -251,10 +260,10 @@ export const formAPI = {
     if (params?.assignedTo) queryParams.append('assignedTo', params.assignedTo);
     if (params?.active !== undefined) queryParams.append('active', params.active.toString());
     if (params?.limit) queryParams.append('limit', params.limit.toString());
-    
+
     const queryString = queryParams.toString();
     const endpoint = `/api/forms${queryString ? `?${queryString}` : ''}`;
-    
+
     return apiCall(endpoint);
   },
 
@@ -294,10 +303,10 @@ export const formAPI = {
     if (params?.userId) queryParams.append('userId', params.userId);
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.sort) queryParams.append('sort', params.sort);
-    
+
     const queryString = queryParams.toString();
     const endpoint = `/api/forms/${formId}/responses${queryString ? `?${queryString}` : ''}`;
-    
+
     return apiCall(endpoint);
   },
 };

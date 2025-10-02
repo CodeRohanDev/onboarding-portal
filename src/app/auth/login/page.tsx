@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import AuthRoute from '@/components/AuthRoute';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -10,18 +10,7 @@ const LoginPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { login, user } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (user) {
-      if (user.role === 'admin') {
-        router.push('/admin/dashboard');
-      } else {
-        router.push('/dashboard');
-      }
-    }
-  }, [user, router]);
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +32,8 @@ const LoginPage: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen page-background flex items-center justify-center p-4">
+    <AuthRoute>
+      <div className="min-h-screen page-background flex items-center justify-center p-4">
       <div className="w-full max-w-md mx-auto">
         {/* Logo and Title */}
         <div className="text-center mb-6">
@@ -182,7 +172,8 @@ const LoginPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </AuthRoute>
   );
 };
 

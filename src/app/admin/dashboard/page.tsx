@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import Layout from '@/components/Layout';
+import ProtectedRoute from '@/components/ProtectedRoute';
 import ProgressBar from '@/components/ProgressBar';
 import { userAPI, taskAPI, formAPI } from '@/lib/api';
 import { calculateOnboardingProgress, getTasksByStatus } from '@/lib/onboardingUtils';
@@ -148,23 +149,13 @@ const AdminDashboard: React.FC = () => {
       .slice(0, 5);
   };
 
-  if (user?.role !== 'admin') {
-    return (
-      <Layout>
-        <div className="text-center py-12">
-          <h1 className="text-2xl font-bold text-danger">Access Denied</h1>
-          <p className="text-text-secondary">You don't have permission to access this page.</p>
-        </div>
-      </Layout>
-    );
-  }
-
   const employeeStats = getEmployeeStats();
   const taskStats = getTaskStats();
   const recentEmployees = getRecentEmployees();
 
   return (
-    <Layout>
+    <ProtectedRoute requiredRole="admin">
+      <Layout>
       <div className="space-y-8">
         {/* Header */}
         <div className="glass-card p-8 rounded-2xl relative overflow-hidden mb-8">
@@ -459,7 +450,8 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
       </div>
-    </Layout>
+      </Layout>
+    </ProtectedRoute>
   );
 };
 

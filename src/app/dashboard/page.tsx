@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import Layout from '@/components/Layout';
+import ProtectedRoute from '@/components/ProtectedRoute';
 import ProgressBar from '@/components/ProgressBar';
 import TaskCard from '@/components/TaskCard';
 import TaskModal from '@/components/TaskModal';
@@ -84,12 +85,9 @@ const EmployeeDashboard: React.FC = () => {
   const taskStats = getTasksByStatus(tasks);
   const upcomingTasks = getUpcomingTasks(tasks);
 
-  if (!user) {
-    return <div>Loading...</div>;
-  }
-
   return (
-    <Layout>
+    <ProtectedRoute requiredRole="user">
+      <Layout>
       <div className="space-y-8">
         {/* Welcome Section */}
         <div className="welcome-section">
@@ -268,7 +266,8 @@ const EmployeeDashboard: React.FC = () => {
         onClose={() => setIsTaskModalOpen(false)}
         onTaskUpdate={handleTaskUpdate}
       />
-    </Layout>
+      </Layout>
+    </ProtectedRoute>
   );
 };
 

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import Layout from '@/components/Layout';
+import ProtectedRoute from '@/components/ProtectedRoute';
 import TaskCard from '@/components/TaskCard';
 import TaskModal from '@/components/TaskModal';
 import { taskAPI } from '@/lib/api';
@@ -93,7 +94,8 @@ const TasksPage: React.FC = () => {
     }
 
     return (
-        <Layout>
+        <ProtectedRoute requiredRole="user">
+            <Layout>
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -184,7 +186,8 @@ const TasksPage: React.FC = () => {
                 onClose={() => setIsTaskModalOpen(false)}
                 onTaskUpdate={handleTaskUpdate}
             />
-        </Layout>
+            </Layout>
+        </ProtectedRoute>
     );
 };
 

@@ -377,3 +377,42 @@ body {
   color: var(--warning);
   border: 1px solid rgba(245, 158, 11, 0.2);
 }
+/
+* Anti-flash styles to prevent content flashing during auth checks */
+.auth-loading {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.auth-loaded {
+  opacity: 1;
+}
+
+/* Prevent layout shift during loading */
+.loading-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Smooth transitions for route changes */
+.page-transition {
+  transition: opacity 0.15s ease-in-out;
+}
+
+.page-transition-enter {
+  opacity: 0;
+}
+
+.page-transition-enter-active {
+  opacity: 1;
+}
+
+.page-transition-exit {
+  opacity: 1;
+}
+
+.page-transition-exit-active {
+  opacity: 0;
+}

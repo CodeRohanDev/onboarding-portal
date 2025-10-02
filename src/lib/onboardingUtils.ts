@@ -1,6 +1,6 @@
-export const calculateOnboardingProgress = (tasks: any[]) => {
+export const calculateOnboardingProgress = (tasks: Record<string, unknown>[]) => {
   if (!tasks || tasks.length === 0) return 0;
-  
+
   const completedTasks = tasks.filter(task => task.status === 'completed').length;
   return Math.round((completedTasks / tasks.length) * 100);
 };
@@ -9,14 +9,14 @@ export const getOnboardingPhase = (startDate: string) => {
   const start = new Date(startDate);
   const now = new Date();
   const daysDiff = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-  
+
   if (daysDiff <= 7) return 'Week 1: Getting Started';
   if (daysDiff <= 30) return 'Month 1: Foundation Building';
   if (daysDiff <= 90) return 'Month 2-3: Integration';
   return 'Ongoing: Full Integration';
 };
 
-export const getTasksByStatus = (tasks: any[]) => {
+export const getTasksByStatus = (tasks: Record<string, unknown>[]) => {
   return {
     completed: tasks.filter(task => task.status === 'completed').length,
     inProgress: tasks.filter(task => task.status === 'in-progress').length,
@@ -24,10 +24,10 @@ export const getTasksByStatus = (tasks: any[]) => {
   };
 };
 
-export const getUpcomingTasks = (tasks: any[], limit = 3) => {
+export const getUpcomingTasks = (tasks: Record<string, unknown>[], limit = 3) => {
   return tasks
     .filter(task => task.status !== 'completed')
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    .sort((a, b) => new Date(a.dueDate as string).getTime() - new Date(b.dueDate as string).getTime())
     .slice(0, limit);
 };
 

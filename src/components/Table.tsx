@@ -6,14 +6,14 @@ interface Column {
   key: string;
   label: string;
   sortable?: boolean;
-  render?: (value: any, row: any) => React.ReactNode;
+  render?: (value: unknown, row: Record<string, unknown>) => React.ReactNode;
 }
 
 interface TableProps {
   columns: Column[];
-  data: any[];
+  data: Record<string, unknown>[];
   loading?: boolean;
-  onRowClick?: (row: any) => void;
+  onRowClick?: (row: Record<string, unknown>) => void;
   className?: string;
 }
 

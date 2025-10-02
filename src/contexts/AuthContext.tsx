@@ -38,27 +38,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
     // Only run on client side
     if (typeof window !== 'undefined') {
-      // Check for stored auth data on mount
-      const storedToken = localStorage.getItem('authToken');
-      const storedUser = localStorage.getItem('userData');
-      
-      if (storedToken && storedUser) {
+      // Add a small delay to prevent flashing
+      const initAuth = async () => {
         try {
-          setToken(storedToken);
-          setUser(JSON.parse(storedUser));
+          // Check for stored auth data on mount
+          const storedToken = localStorage.getItem('authToken');
+          const storedUser = localStorage.getItem('userData');
+          
+          if (storedToken && storedUser) {
+            try {
+              setToken(storedToken);
+              setUser(JSON.parse(storedUser));
+            } catch (error) {
+              console.error('Error parsing stored user data:', error);
+              // Clear invalid data
+              localStorage.removeItem('authToken');
+              localStorage.removeItem('userData');
+            }
+          }
         } catch (error) {
-          console.error('Error parsing stored user data:', error);
-          // Clear invalid data
-          localStorage.removeItem('authToken');
-          localStorage.removeItem('userData');
+          console.error('Auth initialization error:', error);
+        } finally {
+          setLoading(false);
+          setIsInitialized(true);
         }
-      }
+      };
+
+      // Small delay to prevent flash of wrong content
+      setTimeout(initAuth, 100);
+    } else {
+      setLoading(false);
+      setIsInitialized(true);
     }
-    setLoading(false);
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -102,6 +118,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = () => {
+    setLoading(true);
     setUser(null);
     setToken(null);
     
@@ -109,8 +126,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('authToken');
       localStorage.removeItem('userData');
-      // Force redirect to login page
-      window.location.href = '/auth/login';
+      // Use replace to prevent back button issues
+      window.location.replace('/auth/login');
     }
   };
 
@@ -121,6 +138,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     logout,
     loading,
   };
+
+  // Don't render children until auth is initialized
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center page-background">
+        <div className="glass-card p-8 rounded-2xl text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
+          <p className="text-text-secondary">Loading OnboardFlow...</p>
+        </div>
+      </div>
+    );
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
