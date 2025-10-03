@@ -181,8 +181,8 @@ export const taskAPI = {
     if (params?.sort) queryParams.append('sort', params.sort);
 
     const queryString = queryParams.toString();
-    // Use the correct endpoint that exists on the server
-    const endpoint = `/api/tasks/all${queryString ? `?${queryString}` : ''}`;
+    // Use the correct endpoint from the API
+    const endpoint = `/api/tasks${queryString ? `?${queryString}` : ''}`;
 
     return apiCall(endpoint);
   },

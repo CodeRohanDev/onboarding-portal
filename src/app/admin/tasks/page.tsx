@@ -6,16 +6,44 @@ import Layout from '@/components/Layout';
 import Table from '@/components/Table';
 import Modal from '@/components/Modal';
 import { taskAPI, userAPI } from '@/lib/api';
-import { formatDate } from '@/lib/onboardingUtils';
+
 
 interface Task {
-  id: string;
+  _id: string;
   title: string;
   description: string;
-  status: string;
+  status: 'pending' | 'in-progress' | 'completed';
   dueDate: string;
-  userId?: string | string[];
+  assignedTo: {
+    _id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+  type: 'daily' | 'form';
   picture?: string;
+  createdAt: string;
+  updatedAt: string;
+  [key: string]: unknown;
+}
+
+interface GroupedTask {
+  _id: string;
+  title: string;
+  description: string;
+  dueDate: string;
+  type: 'daily' | 'form';
+  picture?: string;
+  createdAt: string;
+  assignedUsers: Array<{
+    _id: string;
+    name: string;
+    email: string;
+    role: string;
+    status: 'pending' | 'in-progress' | 'completed';
+    updatedAt: string;
+  }>;
+  [key: string]: unknown;
 }
 
 interface Employee {
@@ -30,8 +58,11 @@ interface Employee {
 const AdminTasksPage: React.FC = () => {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [groupedTasks, setGroupedTasks] = useState<GroupedTask[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isTaskDetailsModalOpen, setIsTaskDetailsModalOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<GroupedTask | null>(null);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -42,6 +73,8 @@ const AdminTasksPage: React.FC = () => {
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [showAllEmployees, setShowAllEmployees] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [taskSearchTerm, setTaskSearchTerm] = useState('');
 
   useEffect(() => {
     if (user?.role === 'admin') {
@@ -60,6 +93,19 @@ const AdminTasksPage: React.FC = () => {
 
   // Get displayed employees (filtered or limited)
   const displayedEmployees = showAllEmployees ? filteredEmployees : filteredEmployees.slice(0, 5);
+
+  // Filter grouped tasks based on search and filters
+  const filteredTasks = groupedTasks.filter(task => {
+    const matchesSearch = taskSearchTerm === '' || 
+      task.title.toLowerCase().includes(taskSearchTerm.toLowerCase()) ||
+      task.description.toLowerCase().includes(taskSearchTerm.toLowerCase()) ||
+      task.assignedUsers.some(user => user.name.toLowerCase().includes(taskSearchTerm.toLowerCase()));
+    
+    const matchesStatus = statusFilter === 'all' || 
+      task.assignedUsers.some(user => user.status === statusFilter);
+    
+    return matchesSearch && matchesStatus;
+  });
 
   // Check if all displayed employees are selected
   const allDisplayedSelected = displayedEmployees.length > 0 && 
@@ -112,6 +158,49 @@ const AdminTasksPage: React.FC = () => {
     });
   };
 
+  // Function to group tasks by title and description
+  const groupTasksByContent = (tasks: Task[]): GroupedTask[] => {
+    const taskMap = new Map<string, GroupedTask>();
+
+    tasks.forEach(task => {
+      const key = `${task.title}-${task.description}`;
+      
+      if (taskMap.has(key)) {
+        // Add user to existing task group
+        const existingTask = taskMap.get(key)!;
+        existingTask.assignedUsers.push({
+          _id: task.assignedTo._id,
+          name: task.assignedTo.name,
+          email: task.assignedTo.email,
+          role: task.assignedTo.role,
+          status: task.status,
+          updatedAt: task.updatedAt,
+        });
+      } else {
+        // Create new task group
+        taskMap.set(key, {
+          _id: task._id,
+          title: task.title,
+          description: task.description,
+          dueDate: task.dueDate,
+          type: task.type,
+          picture: task.picture,
+          createdAt: task.createdAt,
+          assignedUsers: [{
+            _id: task.assignedTo._id,
+            name: task.assignedTo.name,
+            email: task.assignedTo.email,
+            role: task.assignedTo.role,
+            status: task.status,
+            updatedAt: task.updatedAt,
+          }],
+        });
+      }
+    });
+
+    return Array.from(taskMap.values());
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -121,17 +210,15 @@ const AdminTasksPage: React.FC = () => {
       ]);
 
       if (tasksResponse.success && tasksResponse.data) {
-        // Map API response to match our interface
-        const tasks = tasksResponse.data.map((t: any) => ({
-          id: t._id || t.id,
-          title: t.title,
-          description: t.description,
-          status: t.status,
-          dueDate: t.dueDate,
-          userId: t.assignedTo,
-          picture: t.picture,
-        }));
-        setTasks(tasks);
+        // API returns tasks directly as an array
+        setTasks(tasksResponse.data);
+        // Group tasks by content
+        const grouped = groupTasksByContent(tasksResponse.data);
+        setGroupedTasks(grouped);
+      } else {
+        console.error('Failed to load tasks:', tasksResponse.error);
+        setTasks([]);
+        setGroupedTasks([]);
       }
 
       if (usersResponse.success && usersResponse.data) {
@@ -145,10 +232,14 @@ const AdminTasksPage: React.FC = () => {
           department: u.department,
         }));
         setEmployees(employees);
+      } else {
+        console.error('Failed to load users:', usersResponse.error);
+        setEmployees([]);
       }
     } catch (error) {
       console.error('Error loading data:', error);
       setTasks([]);
+      setGroupedTasks([]);
       setEmployees([]);
     } finally {
       setLoading(false);
@@ -178,6 +269,8 @@ const AdminTasksPage: React.FC = () => {
     }
   };
 
+
+
   const getStatusBadge = (status: string) => {
     const statusColors = {
       pending: 'status-pending',
@@ -192,32 +285,73 @@ const AdminTasksPage: React.FC = () => {
     );
   };
 
+  const handleViewTask = (task: GroupedTask) => {
+    setSelectedTask(task);
+    setIsTaskDetailsModalOpen(true);
+  };
+
+  const handleUserStatusUpdate = async (userId: string, taskTitle: string, newStatus: 'pending' | 'in-progress' | 'completed') => {
+    try {
+      // Find the specific task for this user
+      const userTask = tasks.find(t => 
+        t.assignedTo._id === userId && 
+        t.title === taskTitle
+      );
+      
+      if (!userTask) {
+        alert('Task not found');
+        return;
+      }
+
+      const response = await taskAPI.updateTaskStatus(userTask._id, newStatus);
+      
+      if (response.success) {
+        // Reload data to refresh the grouped tasks
+        loadData();
+        alert('Task status updated successfully!');
+      } else {
+        alert(response.error || 'Error updating task status.');
+      }
+    } catch (error) {
+      console.error('Error updating task status:', error);
+      alert('Error updating task status.');
+    }
+  };
+
   const columns = [
     {
       key: 'title',
       label: 'Task',
-      render: (value: string, row: Task) => (
+      render: (value: unknown, row: Record<string, unknown>) => (
         <div>
-          <div className="text-text-primary font-medium">{value}</div>
-          <div className="text-text-muted text-sm line-clamp-2">{row.description}</div>
+          <div className="text-text-primary font-medium">{String(value)}</div>
+          <div className="text-text-muted text-sm line-clamp-2">{String(row.description)}</div>
         </div>
       ),
     },
     {
-      key: 'userId',
+      key: 'assignedUsers',
       label: 'Assigned To',
-      render: (value: any, row: Task) => {
-        const assignedIds = Array.isArray(row.userId) ? row.userId : (row.userId ? [row.userId] : []);
-        const assignedEmployees = assignedIds.map(id => employees.find(emp => emp.id === id)).filter(Boolean);
+      render: (value: unknown, row: Record<string, unknown>) => {
+        const assignedUsers = row.assignedUsers as Array<{name: string; status: string}>;
+        const totalUsers = assignedUsers?.length || 0;
+        const displayLimit = 3;
         
         return (
           <div className="flex flex-wrap gap-1">
-            {assignedEmployees.length > 0 ? (
-              assignedEmployees.map((employee, index) => (
-                <span key={index} className="status-badge bg-accent/20 text-accent border-accent/30">
-                  {employee?.name}
-                </span>
-              ))
+            {assignedUsers && assignedUsers.length > 0 ? (
+              <>
+                {assignedUsers.slice(0, displayLimit).map((user, index) => (
+                  <span key={index} className="status-badge bg-accent/20 text-accent border-accent/30 text-xs">
+                    {user.name}
+                  </span>
+                ))}
+                {totalUsers > displayLimit && (
+                  <span className="status-badge bg-surface-light text-text-muted border-border-secondary text-xs">
+                    +{totalUsers - displayLimit} more
+                  </span>
+                )}
+              </>
             ) : (
               <span className="text-text-secondary">Unassigned</span>
             )}
@@ -225,36 +359,30 @@ const AdminTasksPage: React.FC = () => {
         );
       },
     },
-    {
-      key: 'status',
-      label: 'Status',
-      render: (value: string) => getStatusBadge(value),
-    },
+
     {
       key: 'dueDate',
       label: 'Due Date',
-      render: (value: string) => (
+      render: (value: unknown) => (
         <span className="text-text-secondary">
-          {value ? new Date(value).toLocaleDateString() + ' ' + new Date(value).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No due date'}
+          {value ? new Date(String(value)).toLocaleDateString() + ' ' + new Date(String(value)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No due date'}
         </span>
       ),
     },
+
     {
-      key: 'picture',
-      label: 'Image',
-      render: (value: string) => (
-        value ? (
-          <img
-            src={value}
-            alt="Task"
-            className="w-10 h-10 object-cover rounded-lg border border-accent/20"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        ) : (
-          <span className="text-text-muted text-sm">No image</span>
-        )
+      key: 'actions',
+      label: 'Actions',
+      render: (value: unknown, row: Record<string, unknown>) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleViewTask(row as GroupedTask);
+          }}
+          className="btn-modern text-xs px-3 py-1"
+        >
+          View Details
+        </button>
       ),
     },
   ];
@@ -292,20 +420,18 @@ const AdminTasksPage: React.FC = () => {
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="glass-card p-6 rounded-xl text-center">
-            <div className="text-3xl font-bold text-text-primary">{tasks.length}</div>
-            <div className="text-text-muted text-sm">Total Tasks</div>
+            <div className="text-3xl font-bold text-text-primary">{groupedTasks.length}</div>
+            <div className="text-text-muted text-sm">Unique Tasks</div>
+          </div>
+          <div className="glass-card p-6 rounded-xl text-center">
+            <div className="text-3xl font-bold text-info">{tasks.length}</div>
+            <div className="text-text-muted text-sm">Total Assignments</div>
           </div>
           <div className="glass-card p-6 rounded-xl text-center">
             <div className="text-3xl font-bold text-success">
               {tasks.filter(t => t.status === 'completed').length}
             </div>
             <div className="text-text-muted text-sm">Completed</div>
-          </div>
-          <div className="glass-card p-6 rounded-xl text-center">
-            <div className="text-3xl font-bold text-warning">
-              {tasks.filter(t => t.status === 'in-progress').length}
-            </div>
-            <div className="text-text-muted text-sm">In Progress</div>
           </div>
           <div className="glass-card p-6 rounded-xl text-center">
             <div className="text-3xl font-bold text-danger">
@@ -316,12 +442,65 @@ const AdminTasksPage: React.FC = () => {
         </div>
 
         {/* Tasks Table */}
+        {/* Search and Filters */}
+        <div className="glass-card p-6 rounded-xl">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-text-secondary text-sm font-medium mb-2">
+                Search Tasks
+              </label>
+              <input
+                type="text"
+                value={taskSearchTerm}
+                onChange={(e) => setTaskSearchTerm(e.target.value)}
+                className="modern-input"
+                placeholder="Search by title, description, or assignee..."
+              />
+            </div>
+            <div>
+              <label className="block text-text-secondary text-sm font-medium mb-2">
+                Status Filter
+              </label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="modern-input"
+              >
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="in-progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={() => {
+                  setTaskSearchTerm('');
+                  setStatusFilter('all');
+                }}
+                className="w-full px-4 py-3 rounded-lg border border-accent/30 text-text-secondary hover:text-text-primary hover:border-accent/50 transition-all duration-300"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+          
+          {/* Results Summary */}
+          <div className="mt-4 pt-4 border-t border-accent/20">
+            <p className="text-text-muted text-sm">
+              Showing {filteredTasks.length} of {groupedTasks.length} unique tasks
+              {taskSearchTerm && ` matching "${taskSearchTerm}"`}
+              {statusFilter !== 'all' && ` with status "${statusFilter}"`}
+            </p>
+          </div>
+        </div>
+
         <Table
           columns={columns}
-          data={tasks}
+          data={filteredTasks as Record<string, unknown>[]}
           loading={loading}
-          onRowClick={(task: Task) => {
-            console.log('Task clicked:', task);
+          onRowClick={(row: Record<string, unknown>) => {
+            handleViewTask(row as GroupedTask);
           }}
         />
       </div>
@@ -533,6 +712,121 @@ const AdminTasksPage: React.FC = () => {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Task Details Modal */}
+      <Modal
+        isOpen={isTaskDetailsModalOpen}
+        onClose={() => {
+          setIsTaskDetailsModalOpen(false);
+          setSelectedTask(null);
+        }}
+        title="Task Details & User Progress"
+        size="xl"
+      >
+        {selectedTask && (
+          <div className="space-y-6">
+            {/* Task Info */}
+            <div className="glass-card p-6 rounded-xl">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold text-text-primary mb-2">{selectedTask.title}</h3>
+                  <p className="text-text-secondary mb-4">{selectedTask.description}</p>
+                  <div className="flex items-center gap-4 text-sm">
+                    <span className={`status-badge ${selectedTask.type === 'daily' ? 'bg-info/20 text-info border-info/30' : 'bg-warning/20 text-warning border-warning/30'}`}>
+                      {selectedTask.type}
+                    </span>
+                    <span className="text-text-muted">
+                      Due: {selectedTask.dueDate ? new Date(selectedTask.dueDate).toLocaleDateString() + ' ' + new Date(selectedTask.dueDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'No due date'}
+                    </span>
+                  </div>
+                </div>
+                {selectedTask.picture && (
+                  <img
+                    src={selectedTask.picture}
+                    alt="Task"
+                    className="w-20 h-20 object-cover rounded-lg border border-accent/20 ml-4"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Progress Summary */}
+              <div className="grid grid-cols-3 gap-4 pt-4 border-t border-accent/20">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-success">
+                    {selectedTask.assignedUsers.filter(u => u.status === 'completed').length}
+                  </div>
+                  <div className="text-text-muted text-sm">Completed</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-warning">
+                    {selectedTask.assignedUsers.filter(u => u.status === 'in-progress').length}
+                  </div>
+                  <div className="text-text-muted text-sm">In Progress</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-danger">
+                    {selectedTask.assignedUsers.filter(u => u.status === 'pending').length}
+                  </div>
+                  <div className="text-text-muted text-sm">Pending</div>
+                </div>
+              </div>
+            </div>
+
+            {/* User Progress List */}
+            <div className="space-y-3">
+              <h4 className="text-lg font-semibold text-text-primary">Assigned Users Progress</h4>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {selectedTask.assignedUsers.map((user, index) => (
+                  <div key={index} className="glass-card p-4 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-accent flex items-center justify-center text-white font-bold">
+                          {user.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-medium text-text-primary">{user.name}</div>
+                          <div className="text-sm text-text-muted">{user.email}</div>
+                          <div className="text-xs text-text-muted">
+                            Last updated: {new Date(user.updatedAt).toLocaleDateString()} {new Date(user.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {getStatusBadge(user.status)}
+                        <select
+                          value={user.status}
+                          onChange={(e) => handleUserStatusUpdate(user._id, selectedTask.title, e.target.value as 'pending' | 'in-progress' | 'completed')}
+                          className="text-xs px-2 py-1 rounded border border-accent/30 bg-surface text-text-primary focus:outline-none focus:border-accent"
+                        >
+                          <option value="pending">Pending</option>
+                          <option value="in-progress">In Progress</option>
+                          <option value="completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end pt-6 border-t border-accent/20">
+              <button
+                onClick={() => {
+                  setIsTaskDetailsModalOpen(false);
+                  setSelectedTask(null);
+                }}
+                className="btn-modern"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </Layout>
   );
