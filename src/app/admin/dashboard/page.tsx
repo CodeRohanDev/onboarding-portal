@@ -4,45 +4,37 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import Layout from '@/components/Layout';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import ProgressBar from '@/components/ProgressBar';
-import { userAPI, taskAPI, formAPI } from '@/lib/api';
-import { calculateOnboardingProgress, getTasksByStatus } from '@/lib/onboardingUtils';
+import { userAPI, taskAPI } from '@/lib/api';
 
 interface User {
   id: string;
   name: string;
   email: string;
-  phone?: string;
   role: 'admin' | 'user';
   startDate: string;
-  department?: string;
 }
 
 interface Task {
-  id: string;
+  _id: string;
   title: string;
   description: string;
-  status: string;
+  status: 'pending' | 'in-progress' | 'completed';
   dueDate: string;
-  category: string;
-  priority: string;
-  userId?: string;
-}
-
-interface Form {
-  id: string;
-  title: string;
-  description: string;
-  assignedTo: string;
-  fields: any[];
+  assignedTo: {
+    _id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+  type: 'daily' | 'form';
   createdAt: string;
+  updatedAt: string;
 }
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
   const [employees, setEmployees] = useState<User[]>([]);
   const [allTasks, setAllTasks] = useState<Task[]>([]);
-  const [forms, setForms] = useState<Form[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -54,402 +46,272 @@ const AdminDashboard: React.FC = () => {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [usersResponse, tasksResponse, formsResponse] = await Promise.all([
+      const [usersResponse, tasksResponse] = await Promise.all([
         userAPI.getAllUsers({ role: 'user' }),
         taskAPI.getAllTasks(),
-        formAPI.getAllForms(),
       ]);
 
       if (usersResponse.success && usersResponse.data) {
-        // Map API response to match our interface
         const users = usersResponse.data.map((u: any) => ({
           id: u._id || u.id,
           name: u.name,
           email: u.email,
-          phone: u.phone,
           role: u.role,
           startDate: u.startDate,
-          department: u.department,
         }));
         setEmployees(users);
       }
 
       if (tasksResponse.success && tasksResponse.data) {
-        // Map API response to match our interface
-        const tasks = tasksResponse.data.map((t: any) => ({
-          id: t._id || t.id,
-          title: t.title,
-          description: t.description,
-          status: t.status,
-          dueDate: t.dueDate,
-          category: t.type || t.category,
-          priority: t.priority || 'medium',
-          userId: t.assignedTo,
-        }));
-        setAllTasks(tasks);
-      }
-
-      if (formsResponse.success && formsResponse.data) {
-        const formsData = formsResponse.data.forms || formsResponse.data;
-        console.log('Admin Dashboard - Raw forms data:', formsData);
-
-        const forms = formsData.map((f: any) => ({
-          id: f._id || f.id,
-          title: f.title,
-          description: f.description,
-          assignedTo: f.assignedTo,
-          fields: f.fields || [],
-          createdAt: f.createdAt,
-        }));
-
-        console.log('Admin Dashboard - Processed forms:', forms);
-        console.log('Forms by assignment:', {
-          user: forms.filter((f: Form) => f.assignedTo === 'user').length,
-          admin: forms.filter((f: Form) => f.assignedTo === 'admin').length,
-          both: forms.filter((f: Form) => f.assignedTo === 'both').length,
-          total: forms.length
-        });
-
-        setForms(forms);
+        setAllTasks(tasksResponse.data);
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       setEmployees([]);
       setAllTasks([]);
-      setForms([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const getEmployeeStats = () => {
+  // Get today's tasks (due today) - remove duplicates by title and description
+  const getTodaysTasks = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todaysTasksFiltered = allTasks.filter(task => {
+      if (!task.dueDate) return false;
+      const taskDate = new Date(task.dueDate);
+      return taskDate >= today && taskDate < tomorrow;
+    });
+
+    // Remove duplicates by grouping tasks with same title and description
+    const uniqueTasks = todaysTasksFiltered.reduce((acc: Task[], current) => {
+      const existing = acc.find(task => 
+        task.title === current.title && task.description === current.description
+      );
+      if (!existing) {
+        acc.push(current);
+      }
+      return acc;
+    }, []);
+
+    return uniqueTasks;
+  };
+
+  // Get basic stats
+  const getStats = () => {
     const totalEmployees = employees.length;
-    const activeEmployees = employees.filter(emp => {
-      const empTasks = allTasks.filter((task: Task) => task.userId === emp.id);
-      const progress = calculateOnboardingProgress(empTasks);
-      return progress > 0 && progress < 100;
-    }).length;
+    const totalTasks = allTasks.length;
+    const completedTasks = allTasks.filter(t => t.status === 'completed').length;
+    const pendingTasks = allTasks.filter(t => t.status === 'pending').length;
+    const todaysTasks = getTodaysTasks();
 
-    const completedEmployees = employees.filter(emp => {
-      const empTasks = allTasks.filter((task: Task) => task.userId === emp.id);
-      const progress = calculateOnboardingProgress(empTasks);
-      return progress === 100;
-    }).length;
-
-    return { totalEmployees, activeEmployees, completedEmployees };
+    return {
+      totalEmployees,
+      totalTasks,
+      completedTasks,
+      pendingTasks,
+      todaysTasks: todaysTasks.length,
+    };
   };
 
-  const getTaskStats = () => {
-    return getTasksByStatus(allTasks);
-  };
-
-  const getRecentEmployees = () => {
-    return employees
-      .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
-      .slice(0, 5);
-  };
-
-  const employeeStats = getEmployeeStats();
-  const taskStats = getTaskStats();
-  const recentEmployees = getRecentEmployees();
+  const stats = getStats();
+  const todaysTasks = getTodaysTasks();
 
   return (
     <ProtectedRoute requiredRole="admin">
       <Layout>
-      <div className="space-y-8">
-        {/* Header */}
-        <div className="glass-card p-8 rounded-2xl relative overflow-hidden mb-8">
-          {/* Background decoration */}
-          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-accent/20 to-purple-deep/20 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-blue-deep/20 to-accent/20 rounded-full blur-2xl"></div>
-
-          <div className="relative z-10">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-center space-x-6 mb-6 lg:mb-0">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-accent to-accent-dark flex items-center justify-center shadow-lg">
-                  <span className="text-3xl">👨‍💼</span>
+        <div className="space-y-6">
+          {/* Modern Welcome Section */}
+          <div className="welcome-section relative overflow-hidden">
+            {/* Subtle background elements */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-accent/10 to-transparent rounded-full blur-2xl"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-accent/5 to-transparent rounded-full blur-xl"></div>
+            
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center space-x-6 mb-4 lg:mb-0">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-accent flex items-center justify-center shadow-lg">
+                  <span className="text-2xl">👨‍💼</span>
                 </div>
                 <div>
-                  <h1 className="text-4xl font-bold text-text-primary mb-2">
-                    Admin Dashboard
+                  <h1 className="text-3xl font-bold text-text-primary mb-1">
+                    Welcome back, {user?.name}
                   </h1>
                   <p className="text-text-secondary text-lg">
-                    Overview of onboarding progress and employee management
-                  </p>
-                  <p className="text-text-muted text-sm">
-                    Welcome back, {user?.name}
+                    Here's what's happening with your team today
                   </p>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="glass-card p-6 rounded-xl text-center">
-            <div className="text-3xl mb-2">👥</div>
-            <div className="text-2xl font-bold text-text-primary">{employeeStats.totalEmployees}</div>
-            <div className="text-text-muted">Total Employees</div>
-          </div>
-          <div className="glass-card p-6 rounded-xl text-center">
-            <div className="text-3xl mb-2">🔄</div>
-            <div className="text-2xl font-bold text-warning">{employeeStats.activeEmployees}</div>
-            <div className="text-text-muted">Active Onboarding</div>
-          </div>
-          <div className="glass-card p-6 rounded-xl text-center">
-            <div className="text-3xl mb-2">✅</div>
-            <div className="text-2xl font-bold text-success">{employeeStats.completedEmployees}</div>
-            <div className="text-text-muted">Completed</div>
-          </div>
-          <div className="glass-card p-6 rounded-xl text-center">
-            <div className="text-3xl mb-2">📋</div>
-            <div className="text-2xl font-bold text-accent">{allTasks.length}</div>
-            <div className="text-text-muted">Total Tasks</div>
-          </div>
-        </div>
-
-
-
-        {/* Management Cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Tasks Management Card */}
-          <div className="glass-card p-6 rounded-xl hover-scale cursor-pointer" onClick={() => window.location.href = '/admin/tasks'}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-warning/20 to-warning/10 flex items-center justify-center">
-                  <span className="text-2xl">📋</span>
+              
+              <div className="flex flex-col items-end space-y-1">
+                <div className="text-text-primary font-medium">
+                  {new Date().toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
                 </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-text-primary">Task Management</h3>
-                  <p className="text-text-secondary text-sm">Manage and assign tasks</p>
+                <div className="text-text-muted text-sm">
+                  {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                  <span className="text-success text-xs font-medium">System Online</span>
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div>
-                <div className="text-lg font-bold text-success">{taskStats.completed}</div>
-                <div className="text-text-muted text-xs">Completed</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-warning">{taskStats.inProgress}</div>
-                <div className="text-text-muted text-xs">In Progress</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-danger">{taskStats.pending}</div>
-                <div className="text-text-muted text-xs">Pending</div>
-              </div>
+          </div>
+
+          {/* Essential Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="glass-card p-4 rounded-xl text-center">
+              <div className="text-2xl font-bold text-text-primary">{stats.totalEmployees}</div>
+              <div className="text-text-muted text-sm">Employees</div>
+            </div>
+            <div className="glass-card p-4 rounded-xl text-center">
+              <div className="text-2xl font-bold text-accent">{stats.totalTasks}</div>
+              <div className="text-text-muted text-sm">Total Tasks</div>
+            </div>
+            <div className="glass-card p-4 rounded-xl text-center">
+              <div className="text-2xl font-bold text-success">{stats.completedTasks}</div>
+              <div className="text-text-muted text-sm">Completed</div>
+            </div>
+            <div className="glass-card p-4 rounded-xl text-center">
+              <div className="text-2xl font-bold text-warning">{stats.todaysTasks}</div>
+              <div className="text-text-muted text-sm">Due Today</div>
             </div>
           </div>
 
-          {/* Resources Management Card */}
-          <div className="glass-card p-6 rounded-xl hover-scale cursor-pointer" onClick={() => window.location.href = '/admin/resources'}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-accent/20 to-accent/10 flex items-center justify-center">
-                  <span className="text-2xl">📁</span>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-text-primary">Resource Management</h3>
-                  <p className="text-text-secondary text-sm">Manage onboarding resources</p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-text-secondary text-sm">Click to manage resources</span>
-              <div className="flex items-center space-x-1 text-accent">
-                <span className="text-sm">Manage</span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </div>
-          </div>
+          {/* Today's Tasks Section */}
+          <div className="glass-card p-6 rounded-xl">
+            <h2 className="text-xl font-semibold text-text-primary mb-4">Today's Tasks</h2>
 
-          {/* Feedback Management Card */}
-          <div className="glass-card p-6 rounded-xl hover-scale cursor-pointer" onClick={() => window.location.href = '/admin/feedback'}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-success/20 to-success/10 flex items-center justify-center">
-                  <span className="text-2xl">📝</span>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-text-primary">Feedback Management</h3>
-                  <p className="text-text-secondary text-sm">Create and manage feedback forms</p>
-                </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
               </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center mb-3">
-              <div>
-                <div className="text-lg font-bold text-success">{forms.length}</div>
-                <div className="text-text-muted text-xs">Total Forms</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-accent">{forms.filter((f: Form) => f.assignedTo === 'user').length}</div>
-                <div className="text-text-muted text-xs">User Forms</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-warning">{forms.filter((f: Form) => f.assignedTo === 'admin').length}</div>
-                <div className="text-text-muted text-xs">Admin Forms</div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-text-secondary text-sm">Click to manage feedback forms</span>
-              <div className="flex items-center space-x-1 text-success">
-                <span className="text-sm">Manage</span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Feedback Forms Section */}
-        <div className="glass-card p-8 rounded-2xl mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-text-primary">Feedback Forms</h2>
-            <button
-              onClick={() => window.location.href = '/admin/feedback'}
-              className="text-accent hover:text-accent-light text-sm font-medium flex items-center space-x-1"
-            >
-              <span>View All</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-
-          {forms.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {forms.slice(0, 6).map((form) => (
-                <div key={form.id} className="p-6 rounded-xl bg-surface border border-accent/10 hover:border-accent/20 transition-all hover-scale cursor-pointer"
-                  onClick={() => window.location.href = '/admin/feedback'}>
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-success/20 flex items-center justify-center">
-                      <span className="text-2xl">📝</span>
-                    </div>
-                    <span className="status-badge bg-accent/20 text-accent border-accent/30">
-                      {form.fields.length} questions
-                    </span>
-                  </div>
-                  <h3 className="text-text-primary font-semibold mb-2 line-clamp-2">{form.title}</h3>
-                  <p className="text-text-secondary text-sm mb-3 line-clamp-2">{form.description}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="status-badge bg-info/20 text-info border-info/30 capitalize text-xs">
-                      {form.assignedTo}
-                    </span>
-                    <span className="text-text-muted text-xs">
-                      {new Date(form.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <div className="text-6xl mb-4">📝</div>
-              <h3 className="text-xl font-semibold text-text-primary mb-2">
-                No feedback forms created yet
-              </h3>
-              <p className="text-text-secondary mb-4">
-                Create your first feedback form to start collecting employee feedback.
-              </p>
-              <button
-                onClick={() => window.location.href = '/admin/feedback'}
-                className="btn-modern"
-              >
-                Create First Form
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Recent Employees */}
-        <div className="glass-card p-8 rounded-2xl">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-text-primary">Recent Employees</h2>
-            <button
-              onClick={() => window.location.href = '/admin/employees'}
-              className="text-accent hover:text-accent-light text-sm font-medium flex items-center space-x-1"
-            >
-              <span>View All</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {recentEmployees.map((employee) => {
-              const empTasks = allTasks.filter((task: Task) => task.userId === employee.id);
-              const progress = calculateOnboardingProgress(empTasks);
-
-              return (
-                <div key={employee.id} className="p-6 rounded-xl bg-surface border border-accent/10 hover:border-accent/20 transition-all hover-scale">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-accent to-purple flex items-center justify-center">
-                      <span className="text-white font-bold text-lg">
-                        {employee.name.charAt(0).toUpperCase()}
+            ) : (
+              <div className="flex gap-4 overflow-x-auto pb-2">
+                {todaysTasks.slice(0, 4).map((task) => (
+                  <div key={task._id} className="flex-shrink-0 w-64 p-4 rounded-xl bg-surface border border-accent/10 hover:border-accent/20 transition-all">
+                    <div className="flex items-start justify-between mb-3">
+                      <span className={`status-badge text-xs ${
+                        task.status === 'completed' ? 'status-completed' :
+                        task.status === 'in-progress' ? 'status-in-progress' : 'status-pending'
+                      }`}>
+                        {task.status.replace('-', ' ')}
+                      </span>
+                      <span className="text-text-muted text-xs">
+                        {new Date(task.dueDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                       </span>
                     </div>
-                    <div className="flex-1">
-                      <h3 className="text-text-primary font-semibold mb-1">{employee.name}</h3>
-                      <p className="text-text-muted text-sm mb-2">{employee.email}</p>
-                      <div className="flex items-center space-x-3">
-                        <div className="flex-1 bg-secondary rounded-full h-2">
-                          <div
-                            className="progress-bar h-2 rounded-full transition-all duration-500"
-                            style={{ width: `${progress}%` }}
-                          />
-                        </div>
-                        <span className="text-accent font-semibold text-sm">{progress}%</span>
-                      </div>
+                    <h3 className="font-medium text-text-primary mb-2 line-clamp-2">{task.title}</h3>
+                    <p className="text-text-muted text-sm line-clamp-3">{task.description}</p>
+                    <div className="mt-3 pt-3 border-t border-accent/10">
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        task.type === 'daily' ? 'bg-info/20 text-info' : 'bg-warning/20 text-warning'
+                      }`}>
+                        {task.type}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                
+                {/* View All Tasks Card */}
+                <div 
+                  className="flex-shrink-0 w-64 p-4 rounded-xl bg-gradient-accent hover:shadow-lg transition-all cursor-pointer group"
+                  onClick={() => window.location.href = '/admin/tasks'}
+                >
+                  <div className="flex flex-col items-center justify-center h-full text-white text-center">
+                    <div className="text-3xl mb-3 group-hover:scale-110 transition-transform">📋</div>
+                    <h3 className="font-semibold mb-2">View All Tasks</h3>
+                    <p className="text-white/80 text-sm">
+                      Manage all {stats.totalTasks} tasks
+                    </p>
+                    <div className="mt-3 flex items-center text-sm">
+                      <span>Go to Tasks</span>
+                      <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
                     </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
 
-        {/* Quick Actions */}
-        <div className="glass-card p-8 rounded-2xl">
-          <h2 className="text-2xl font-bold text-text-primary mb-6">
-            Quick Actions
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <button
-              onClick={() => window.location.href = '/admin/employees'}
-              className="p-6 rounded-xl bg-gradient-surface hover-scale transition-all text-center border border-accent/20 hover:border-accent/40"
-            >
-              <div className="text-3xl mb-3">👤</div>
-              <div className="text-text-primary font-semibold">Add Employee</div>
-            </button>
+                {/* Empty State */}
+                {todaysTasks.length === 0 && (
+                  <div className="flex-shrink-0 w-64 p-4 rounded-xl bg-surface border border-accent/10 flex flex-col items-center justify-center text-center">
+                    <div className="text-4xl mb-2">✅</div>
+                    <p className="text-text-muted text-sm">No tasks due today</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Quick Navigation */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <button
               onClick={() => window.location.href = '/admin/tasks'}
-              className="p-6 rounded-xl bg-gradient-surface hover-scale transition-all text-center border border-accent/20 hover:border-accent/40"
+              className="glass-card p-4 rounded-xl hover:border-accent/30 transition-all text-center group"
             >
-              <div className="text-3xl mb-3">📋</div>
-              <div className="text-text-primary font-semibold">Create Task</div>
+              <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">📋</div>
+              <div className="text-text-primary font-medium text-sm">Tasks</div>
+            </button>
+            <button
+              onClick={() => window.location.href = '/admin/employees'}
+              className="glass-card p-4 rounded-xl hover:border-accent/30 transition-all text-center group"
+            >
+              <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">👥</div>
+              <div className="text-text-primary font-medium text-sm">Employees</div>
             </button>
             <button
               onClick={() => window.location.href = '/admin/resources'}
-              className="p-6 rounded-xl bg-gradient-surface hover-scale transition-all text-center border border-accent/20 hover:border-accent/40"
+              className="glass-card p-4 rounded-xl hover:border-accent/30 transition-all text-center group"
             >
-              <div className="text-3xl mb-3">📁</div>
-              <div className="text-text-primary font-semibold">Upload Resource</div>
+              <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">📁</div>
+              <div className="text-text-primary font-medium text-sm">Resources</div>
             </button>
             <button
               onClick={() => window.location.href = '/admin/feedback'}
-              className="p-6 rounded-xl bg-gradient-surface hover-scale transition-all text-center border border-accent/20 hover:border-accent/40"
+              className="glass-card p-4 rounded-xl hover:border-accent/30 transition-all text-center group"
             >
-              <div className="text-3xl mb-3">📝</div>
-              <div className="text-text-primary font-semibold">Create Form</div>
+              <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">📝</div>
+              <div className="text-text-primary font-medium text-sm">Feedback</div>
             </button>
           </div>
+
+          {/* Recent Activity */}
+          <div className="glass-card p-6 rounded-xl">
+            <h2 className="text-xl font-semibold text-text-primary mb-4">Recent Activity</h2>
+            <div className="space-y-3">
+              {allTasks
+                .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+                .slice(0, 3)
+                .map((task) => (
+                  <div key={task._id} className="flex items-center gap-3 p-3 rounded-lg bg-surface/50">
+                    <div className={`w-2 h-2 rounded-full ${
+                      task.status === 'completed' ? 'bg-success' :
+                      task.status === 'in-progress' ? 'bg-warning' : 'bg-danger'
+                    }`}></div>
+                    <div className="flex-1">
+                      <p className="text-text-primary text-sm">
+                        <span className="font-medium">{task.assignedTo.name}</span> {
+                          task.status === 'completed' ? 'completed' :
+                          task.status === 'in-progress' ? 'started working on' : 'was assigned'
+                        } "{task.title}"
+                      </p>
+                      <p className="text-text-muted text-xs">
+                        {new Date(task.updatedAt).toLocaleDateString()} at {new Date(task.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
         </div>
-      </div>
       </Layout>
     </ProtectedRoute>
   );
